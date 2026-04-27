@@ -17,12 +17,27 @@
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
   html, body { margin: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; touch-action: none; }
-  header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--line); gap: 12px; }
   header .title { font-weight: 700; letter-spacing: 0.04em; }
+  header .right { display: flex; align-items: center; gap: 12px; }
   header .status { font-size: 12px; color: var(--warn); }
   header .status.ok { color: var(--accent); }
+  header .toggle { font-size: 11px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); color: var(--muted); cursor: pointer; touch-action: none; user-select: none; }
+  header .toggle.on { background: var(--accent); border-color: var(--accent); color: #06120a; }
 
-  main { display: grid; grid-template-rows: minmax(0, 1fr) auto auto; gap: 8px; padding: 8px; height: calc(100% - 45px); }
+  /* Visualizer panel — iframe to muikku.app, only loads when toggled on */
+  .viz { display: none; flex: 0 0 auto; height: 220px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #000; }
+  .viz.on { display: block; }
+  .viz iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+  main { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto auto auto; gap: 8px; padding: 8px; height: calc(100% - 45px); }
+
+  /* Track launchers (one per Ableton track) */
+  .tracks-row { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
+  .track-btn { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 10px 4px; text-align: center; font-size: 10px; font-weight: 700; color: var(--muted); touch-action: none; line-height: 1.05; }
+  .track-btn.active { background: var(--accent); border-color: var(--accent); color: #06120a; }
+  .track-btn.stop   { color: #f87171; }
+  .track-btn.stop.active { background: #b91c1c; border-color: #b91c1c; color: #fff; }
 
   /* Faders */
   .faders { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; min-height: 0; }
@@ -63,10 +78,15 @@
 <body>
 <header>
   <div class="title">Acid Control</div>
-  <div class="status" id="status">connecting…</div>
+  <div class="right">
+    <div class="toggle" id="viz-toggle">VIZ</div>
+    <div class="status" id="status">connecting…</div>
+  </div>
 </header>
 <main>
+  <div class="viz" id="viz"></div>
   <div class="faders" id="faders"></div>
+  <div class="tracks-row" id="tracks"></div>
   <div class="pads" id="pads"></div>
   <div class="oct-row">
     <div class="oct-btn" id="oct-down">OCT−</div>
@@ -114,6 +134,31 @@
     { note: 68, afterWhite: 4 }, // G#4
     { note: 70, afterWhite: 5 }, // A#4
   ];
+
+  // --- Visualizer (muikku.app embedded iframe) ---
+  // Lazy-load: the iframe is only created the first time the toggle is turned
+  // on, so the page does not fetch muikku.app on every refresh. State persists
+  // in localStorage so the panel sticks across reloads.
+  const vizEl = document.getElementById('viz');
+  const vizToggle = document.getElementById('viz-toggle');
+  function setViz(on) {
+    if (on && !vizEl.firstChild) {
+      const ifr = document.createElement('iframe');
+      ifr.src = 'https://muikku.app/';
+      ifr.allow = 'autoplay; microphone; camera; display-capture; fullscreen; xr-spatial-tracking';
+      ifr.referrerPolicy = 'no-referrer';
+      vizEl.appendChild(ifr);
+    }
+    vizEl.classList.toggle('on', on);
+    vizToggle.classList.toggle('on', on);
+    try { localStorage.setItem('viz', on ? '1' : '0'); } catch {}
+  }
+  vizToggle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    setViz(!vizEl.classList.contains('on'));
+  });
+  // Restore saved state.
+  try { if (localStorage.getItem('viz') === '1') setViz(true); } catch {}
 
   // WebSocket connection with linear-then-capped backoff. Drops messages while
   // disconnected (stale fader values not worth queuing).
@@ -311,11 +356,44 @@
   keyboardEl.addEventListener('pointercancel', endPointer);
   keyboardEl.addEventListener('pointerleave',  endPointer);
 
+  // --- Track launchers ---
+  // Nine per-track buttons + one Stop All. Each sends a unique note on a
+  // separate "track" channel (channel 2) so they never collide with the pads
+  // (channel 1, notes 36-43) or the keyboard (channel 1, notes 60-72).
+  // MIDI Learn each one to a clip-launch button in Ableton's Session view.
+  const TRACK_CHANNEL = 2;
+  const TRACKS = [
+    { label: 'T1\nMIDI',  note: 36 },
+    { label: 'T2\nOther', note: 37 },
+    { label: 'T3\nKick',  note: 38 },
+    { label: 'T4\nHats',  note: 39 },
+    { label: 'T5\nPerc',  note: 40 },
+    { label: 'T6\n303',   note: 41 },
+    { label: 'T7\nLead',  note: 42 },
+    { label: 'T8\nChord', note: 43 },
+    { label: 'T9\nBass',  note: 44 },
+  ];
+  function buildTrackBtn(parent, cfg, isStop = false) {
+    const el = document.createElement('div');
+    el.className = 'track-btn' + (isStop ? ' stop' : '');
+    el.innerHTML = cfg.label.replace('\n', '<br>');
+    function press()   { el.classList.add('active');    send({ type: 'note', channel: TRACK_CHANNEL, note: cfg.note, value: 127 }); }
+    function release() { if (!el.classList.contains('active')) return; el.classList.remove('active'); send({ type: 'note', channel: TRACK_CHANNEL, note: cfg.note, value: 0 }); }
+    el.addEventListener('pointerdown', (e) => { press(); el.setPointerCapture(e.pointerId); e.preventDefault(); });
+    el.addEventListener('pointerup',     release);
+    el.addEventListener('pointercancel', release);
+    el.addEventListener('pointerleave', () => { if (el.classList.contains('active')) release(); });
+    parent.appendChild(el);
+  }
+
   // Build everything.
   const fadersEl = document.getElementById('faders');
   const padsEl   = document.getElementById('pads');
+  const tracksEl = document.getElementById('tracks');
   for (const f of FADERS) buildFader(fadersEl, f);
   for (const p of PADS)   buildPad(padsEl, p);
+  for (const t of TRACKS) buildTrackBtn(tracksEl, t);
+  buildTrackBtn(tracksEl, { label: 'STOP\nALL', note: 45 }, true);
   updateOctaveDisplay();
 </script>
 </body>
