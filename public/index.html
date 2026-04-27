@@ -38,6 +38,12 @@
   .pad { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 6px; text-align: center; font-size: 11px; font-weight: 600; touch-action: none; color: var(--muted); }
   .pad.active { background: var(--hot); border-color: var(--hot); color: #fff; }
 
+  /* Octave switcher row */
+  .oct-row { display: flex; gap: 8px; align-items: center; padding: 4px 8px; }
+  .oct-btn { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; font-size: 12px; font-weight: 700; color: var(--muted); flex: 0 0 auto; touch-action: none; }
+  .oct-btn:active { background: var(--accent); border-color: var(--accent); color: #06120a; }
+  .oct-display { flex: 1; text-align: center; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
   /* Keyboard — proper piano layout. White keys flex-fill the row; black keys
      absolute-positioned at the right gaps between specific white-key pairs. */
   .keyboard { position: relative; width: 100%; height: 130px; background: #1a1a1a; border-radius: 8px; padding: 4px 4px 0; border: 1px solid var(--line); }
@@ -62,6 +68,11 @@
 <main>
   <div class="faders" id="faders"></div>
   <div class="pads" id="pads"></div>
+  <div class="oct-row">
+    <div class="oct-btn" id="oct-down">OCT−</div>
+    <div class="oct-display" id="oct-display">Octave: 0  ·  Pads C2  ·  Keys C4–C5</div>
+    <div class="oct-btn" id="oct-up">OCT+</div>
+  </div>
   <div class="keyboard" id="keyboard"><div class="white-row" id="white-row"></div></div>
 </main>
 
@@ -132,6 +143,46 @@
     ws.send(JSON.stringify(obj));
   }
 
+  // --- Octave shift ---
+  // Pads + keyboard share a single octave-shift offset measured in semitones
+  // (multiples of 12). Range chosen so the lowest pad note stays >= 0 and the
+  // highest keyboard note stays <= 127.
+  let octaveShift = 0;
+  const OCT_MIN = -3;
+  const OCT_MAX = 4;
+  const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  function noteName(midi) {
+    const n = NOTE_NAMES[((midi % 12) + 12) % 12];
+    const oct = Math.floor(midi / 12) - 1;
+    return n + oct;
+  }
+  function shifted(note) {
+    return Math.max(0, Math.min(127, note + octaveShift * 12));
+  }
+  function updateOctaveDisplay() {
+    const padsLow  = noteName(shifted(PADS[0].note));
+    const keysLow  = noteName(shifted(WHITE_NOTES[0].note));
+    const keysHigh = noteName(shifted(WHITE_NOTES[WHITE_NOTES.length - 1].note));
+    document.getElementById('oct-display').textContent =
+      `Octave: ${octaveShift >= 0 ? '+' : ''}${octaveShift}  ·  Pads ${padsLow}+  ·  Keys ${keysLow}–${keysHigh}`;
+  }
+  function changeOctave(delta) {
+    const next = Math.max(OCT_MIN, Math.min(OCT_MAX, octaveShift + delta));
+    if (next === octaveShift) return;
+    // Release any held notes at the OLD octave so Ableton doesn't get stuck
+    // notes when keys "move" mid-press.
+    for (const el of document.querySelectorAll('.key.active, .pad.active')) {
+      const baseNote = +el.dataset.note;
+      send({ type: 'note', channel: CHANNEL, note: shifted(baseNote), value: 0 });
+      el.classList.remove('active');
+    }
+    activeByPointer.clear();
+    octaveShift = next;
+    updateOctaveDisplay();
+  }
+  document.getElementById('oct-down').addEventListener('pointerdown', (e) => { e.preventDefault(); changeOctave(-1); });
+  document.getElementById('oct-up'  ).addEventListener('pointerdown', (e) => { e.preventDefault(); changeOctave(+1); });
+
   // --- Faders ---
   function buildFader(parent, cfg) {
     const el = document.createElement('div'); el.className = 'fader';
@@ -172,11 +223,14 @@
   }
 
   // --- Pads (note on / off) ---
+  // Each pad stores its BASE note in dataset.note; the actual sent note is
+  // computed via shifted() at press / release time so octave changes apply.
   function buildPad(parent, cfg) {
     const el = document.createElement('div'); el.className = 'pad';
     el.textContent = cfg.label;
-    function press()   { el.classList.add('active');    send({ type: 'note', channel: CHANNEL, note: cfg.note, value: 127 }); }
-    function release() { if (!el.classList.contains('active')) return; el.classList.remove('active'); send({ type: 'note', channel: CHANNEL, note: cfg.note, value: 0 }); }
+    el.dataset.note = cfg.note;
+    function press()   { el.classList.add('active');    send({ type: 'note', channel: CHANNEL, note: shifted(cfg.note), value: 127 }); }
+    function release() { if (!el.classList.contains('active')) return; el.classList.remove('active'); send({ type: 'note', channel: CHANNEL, note: shifted(cfg.note), value: 0 }); }
     el.addEventListener('pointerdown', (e) => { press(); el.setPointerCapture(e.pointerId); e.preventDefault(); });
     el.addEventListener('pointerup',     release);
     el.addEventListener('pointercancel', release);
@@ -192,12 +246,12 @@
   function pressKey(el) {
     if (el.classList.contains('active')) return;
     el.classList.add('active');
-    send({ type: 'note', channel: CHANNEL, note: +el.dataset.note, value: 127 });
+    send({ type: 'note', channel: CHANNEL, note: shifted(+el.dataset.note), value: 127 });
   }
   function releaseKey(el) {
     if (!el || !el.classList.contains('active')) return;
     el.classList.remove('active');
-    send({ type: 'note', channel: CHANNEL, note: +el.dataset.note, value: 0 });
+    send({ type: 'note', channel: CHANNEL, note: shifted(+el.dataset.note), value: 0 });
   }
   function keyAtPoint(x, y) {
     const stack = document.elementsFromPoint(x, y);
@@ -262,6 +316,7 @@
   const padsEl   = document.getElementById('pads');
   for (const f of FADERS) buildFader(fadersEl, f);
   for (const p of PADS)   buildPad(padsEl, p);
+  updateOctaveDisplay();
 </script>
 </body>
 </html>
