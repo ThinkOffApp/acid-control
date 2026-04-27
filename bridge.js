@@ -1,13 +1,17 @@
-// touch-control bridge: phone web UI <-> macOS IAC virtual MIDI <-> Ableton.
+// acid-control bridge: phone web UI <-> macOS CoreMIDI <-> Ableton.
 //
 // Run once:    node bridge.js
 // Phone:       open http://<MacBook IP>:8080  (System Settings > Wi-Fi shows IP)
-// Ableton:     enable the new MIDI input ("touch-control") in
+// Ableton:     enable the new MIDI input ("acid-control") in
 //              Settings > MIDI > Input, set Track + Remote = On,
 //              then MIDI Learn any control to a fader/button on the phone UI.
 //
 // Bind is 0.0.0.0 so phones on the same Wi-Fi can reach it. If you don't want
 // that, set HOST=127.0.0.1.
+//
+// PORT_NAME defaults to "acid-control" but can be overridden via the env var
+// of the same name so existing MIDI Learn mappings don't break on rename
+// (e.g. MIDI_PORT_NAME=touch-control node bridge.js).
 
 const http = require('http');
 const fs = require('fs');
@@ -17,7 +21,7 @@ const easymidi = require('easymidi');
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 const HOST = process.env.HOST || '0.0.0.0';
-const PORT_NAME = 'touch-control';
+const PORT_NAME = process.env.MIDI_PORT_NAME || 'acid-control';
 
 // Open one virtual MIDI output. macOS exposes it to other apps automatically;
 // no IAC Driver setup needed.

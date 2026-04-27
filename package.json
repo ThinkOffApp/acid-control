@@ -1,12 +1,12 @@
 {
-  "name": "touch-control",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "acid-control",
+  "version": "0.1.0",
+  "description": "Phone web UI to virtual MIDI bridge for Ableton — faders, pads, octave-aware keyboard, track launchers, optional muikku.app visualizer.",
+  "main": "bridge.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node bridge.js"
   },
-  "keywords": [],
+  "keywords": ["ableton", "midi", "websocket", "control-surface"],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
