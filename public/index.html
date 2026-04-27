@@ -1,505 +1,267 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Acid Control</title>
-    <style>
-        body, html {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            background-color: #121212;
-            color: #ffffff;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            overflow: hidden; /* Prevent scrolling */
-            touch-action: none; /* Prevent browser gestures */
-        }
-        
-        #app-container {
-            display: flex;
-            flex-direction: column;
-            height: 100%;
-            padding: 20px;
-            box-sizing: border-box;
-            gap: 20px;
-        }
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Acid Control</title>
+<style>
+  :root {
+    --bg: #0c0f17;
+    --card: #141a26;
+    --line: #2a3447;
+    --text: #e9eef7;
+    --muted: #8896ad;
+    --accent: #22c55e;
+    --warn: #f59e0b;
+    --hot: #ff5722;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); overflow: hidden; touch-action: none; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header .title { font-weight: 700; letter-spacing: 0.04em; }
+  header .status { font-size: 12px; color: var(--warn); }
+  header .status.ok { color: var(--accent); }
 
-        .header {
-            text-align: center;
-            font-size: 1.2rem;
-            font-weight: bold;
-            color: #888;
-            margin-bottom: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+  main { display: grid; grid-template-rows: minmax(0, 1fr) auto auto; gap: 8px; padding: 8px; height: calc(100% - 45px); }
 
-        .status {
-            font-size: 0.9rem;
-            color: #f44336; /* disconnected red */
-        }
-        .status.connected {
-            color: #4caf50; /* connected green */
-        }
+  /* Faders */
+  .faders { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; min-height: 0; }
+  .fader { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 6px; display: flex; flex-direction: column; min-height: 0; }
+  .fader .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; text-align: center; margin-bottom: 6px; min-height: 14px; line-height: 1.1; }
+  .fader .track { position: relative; flex: 1; background: #050811; border: 1px solid var(--line); border-radius: 8px; touch-action: none; min-height: 80px; }
+  .fader .fill  { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(180deg, #4ade80, #16803a); border-bottom-left-radius: 7px; border-bottom-right-radius: 7px; pointer-events: none; }
+  .fader .thumb { position: absolute; left: 50%; transform: translate(-50%, 50%); width: 80%; height: 8px; background: #f4f6fb; border-radius: 4px; pointer-events: none; box-shadow: 0 2px 6px rgba(0,0,0,0.6); }
+  .fader .val   { font-size: 10px; color: var(--muted); margin-top: 4px; text-align: center; font-variant-numeric: tabular-nums; }
 
-        .controls-grid {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-            flex: 1;
-        }
+  /* Pads / transport */
+  .pads { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+  .pad { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 6px; text-align: center; font-size: 11px; font-weight: 600; touch-action: none; color: var(--muted); }
+  .pad.active { background: var(--hot); border-color: var(--hot); color: #fff; }
 
-        .control-group {
-            background: #1e1e1e;
-            border-radius: 12px;
-            padding: 15px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            border: 1px solid #333;
-            flex: 1 1 30%;
-            min-width: 100px;
-        }
+  /* Keyboard — proper piano layout. White keys flex-fill the row; black keys
+     absolute-positioned at the right gaps between specific white-key pairs. */
+  .keyboard { position: relative; width: 100%; height: 130px; background: #1a1a1a; border-radius: 8px; padding: 4px 4px 0; border: 1px solid var(--line); }
+  .white-row { display: flex; height: 100%; gap: 2px; }
+  .key.white { flex: 1; background: linear-gradient(180deg, #fafafa 0%, #fafafa 80%, #d4d4d4 100%); border: 1px solid #888; border-top: none; border-radius: 0 0 5px 5px; box-shadow: inset 0 -3px 0 rgba(0,0,0,0.15); touch-action: none; position: relative; }
+  .key.white.active { background: linear-gradient(180deg, #93c5fd 0%, #60a5fa 100%); }
+  .key.white .label { position: absolute; bottom: 4px; left: 0; right: 0; text-align: center; font-size: 9px; color: #666; pointer-events: none; }
+  .key.black { position: absolute; top: 4px; width: 7%; height: 62%; background: linear-gradient(180deg, #000 0%, #2a2a2a 70%, #444 100%); border: 1px solid #000; border-radius: 0 0 4px 4px; box-shadow: inset 0 -3px 0 rgba(255,255,255,0.1), 0 2px 6px rgba(0,0,0,0.6); touch-action: none; z-index: 2; }
+  .key.black.active { background: linear-gradient(180deg, #1e3a8a 0%, #3b82f6 100%); }
 
-        .label {
-            font-size: 0.8rem;
-            color: #aaa;
-            margin-bottom: 10px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            pointer-events: none;
-        }
-
-        /* FADER */
-        .fader-track {
-            width: 40px;
-            flex: 1;
-            background: #000;
-            border-radius: 20px;
-            position: relative;
-            box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
-            min-height: 150px;
-        }
-        
-        .fader-fill {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            height: 0%;
-            background: linear-gradient(to top, #2196F3, #4CAF50);
-            border-radius: 20px;
-            pointer-events: none;
-        }
-
-        .fader-thumb {
-            position: absolute;
-            left: 50%;
-            bottom: 0%;
-            transform: translate(-50%, 50%);
-            width: 50px;
-            height: 30px;
-            background: #444;
-            border: 2px solid #666;
-            border-radius: 5px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
-            pointer-events: none;
-        }
-
-        /* BUTTONS */
-        .button-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            grid-template-rows: 1fr 1fr;
-            gap: 10px;
-            width: 100%;
-            flex: 1;
-        }
-
-        .action-button {
-            background: #333;
-            border: 2px solid #444;
-            border-radius: 8px;
-            color: white;
-            font-size: 0.9rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            user-select: none;
-            transition: all 0.1s;
-            cursor: pointer;
-        }
-
-        .action-button.active {
-            background: #FF5722;
-            border-color: #E64A19;
-            transform: scale(0.95);
-        }
-
-        /* XY PAD */
-        .xy-pad-container {
-            flex: 1 1 100%;
-            min-height: 250px;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .xy-pad {
-            flex: 1;
-            width: 100%;
-            background: #000;
-            border-radius: 12px;
-            position: relative;
-            box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
-            overflow: hidden;
-            touch-action: none;
-        }
-        
-        .xy-cursor {
-            position: absolute;
-            width: 40px;
-            height: 40px;
-            background: rgba(255, 193, 7, 0.7);
-            border: 2px solid #FFC107;
-            border-radius: 50%;
-            transform: translate(-50%, -50%);
-            pointer-events: none;
-            left: 50%;
-            top: 50%;
-            box-shadow: 0 0 15px rgba(255, 193, 7, 0.5);
-        }
-    </style>
+  @media (max-width: 480px) {
+    .faders { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); }
+    .pads { grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(2, 1fr); }
+  }
+</style>
 </head>
 <body>
-
-<div id="app-container">
-    <div class="header">
-        <span>Acid Control</span>
-        <span class="status" id="connection-status">Disconnected</span>
-    </div>
-
-    <div class="controls-grid">
-        <!-- Fader 1 -->
-        <div class="control-group">
-            <div class="label">Cutoff (303)</div>
-            <div class="fader-track" data-address="/track/1/cutoff">
-                <div class="fader-fill"></div>
-                <div class="fader-thumb"></div>
-            </div>
-        </div>
-
-        <!-- Fader 2 -->
-        <div class="control-group">
-            <div class="label">Resonance</div>
-            <div class="fader-track" data-address="/track/1/reso">
-                <div class="fader-fill"></div>
-                <div class="fader-thumb"></div>
-            </div>
-        </div>
-
-        <!-- Transport Buttons -->
-        <div class="control-group">
-            <div class="label">Transport</div>
-            <div class="button-grid">
-                <div class="action-button" data-address="/transport/play">PLAY</div>
-                <div class="action-button" data-address="/transport/stop">STOP</div>
-                <div class="action-button" data-address="/transport/record">REC</div>
-                <div class="action-button" data-address="/transport/loop">LOOP</div>
-            </div>
-        </div>
-        
-        <!-- XY Pad -->
-        <div class="control-group xy-pad-container">
-            <div class="label">Delay (X: Time, Y: Feedback)</div>
-            <div class="xy-pad" data-address-x="/fx/1/delay_time" data-address-y="/fx/1/delay_feedback">
-                <div class="xy-cursor"></div>
-            </div>
-        </div>
-
-        <!-- Keyboard -->
-        <div class="control-group keyboard-container" style="flex: 1 1 100%; padding: 0;">
-            <div class="label" style="padding-top: 10px; margin-bottom: 5px;">Keyboard (C4 - C5)</div>
-            <div class="keyboard" id="keyboard">
-                <!-- Keys will be injected via JS -->
-            </div>
-        </div>
-    </div>
-</div>
-
-<style>
-    /* KEYBOARD */
-    .keyboard {
-        display: flex;
-        width: 100%;
-        height: 120px;
-        position: relative;
-        background: #222;
-        border-radius: 0 0 12px 12px;
-        overflow: hidden;
-    }
-    
-    .key {
-        flex: 1;
-        border: 1px solid #000;
-        box-sizing: border-box;
-        border-radius: 0 0 4px 4px;
-        touch-action: none;
-        cursor: pointer;
-    }
-    
-    .key.white {
-        background: #fff;
-        z-index: 1;
-    }
-    
-    .key.white.active {
-        background: #ccc;
-    }
-    
-    .key.black {
-        background: #000;
-        z-index: 2;
-        height: 60%;
-        width: calc(100% / 7 * 0.6); /* Approximate width based on 7 white keys */
-        margin-left: calc(-100% / 7 * 0.3);
-        margin-right: calc(-100% / 7 * 0.3);
-    }
-    
-    .key.black.active {
-        background: #333;
-    }
-</style>
+<header>
+  <div class="title">Acid Control</div>
+  <div class="status" id="status">connecting…</div>
+</header>
+<main>
+  <div class="faders" id="faders"></div>
+  <div class="pads" id="pads"></div>
+  <div class="keyboard" id="keyboard"><div class="white-row" id="white-row"></div></div>
+</main>
 
 <script>
-    // Initialize WebSocket
-    let ws;
-    const statusEl = document.getElementById('connection-status');
-    const WEBSOCKET_PORT = 8080;
-    
-    function connect() {
-        const host = window.location.hostname || 'localhost';
-        // Note: For actual phone testing, this needs to point to the MacBook's LAN IP
-        ws = new WebSocket(`ws://${host}:${WEBSOCKET_PORT}`);
-        
-        ws.onopen = () => {
-            statusEl.textContent = 'Connected';
-            statusEl.className = 'status connected';
-            console.log('WebSocket Connected');
-        };
-        
-        ws.onclose = () => {
-            statusEl.textContent = 'Disconnected';
-            statusEl.className = 'status';
-            console.log('WebSocket Disconnected. Reconnecting in 2s...');
-            setTimeout(connect, 2000);
-        };
+  // Layout — six named faders (CC 1–6), four transport-style pads (notes 36–39)
+  // plus four spare pads (notes 40–43), and a one-octave piano (notes 60–72).
+  // All on MIDI channel 1. Re-map any control in Ableton via Cmd+M MIDI Learn.
+  const CHANNEL = 1;
+  const FADERS = [
+    { label: 'Cutoff',   cc: 1 },
+    { label: 'Reso',     cc: 2 },
+    { label: 'Volume',   cc: 3 },
+    { label: 'Drive',    cc: 4 },
+    { label: 'Echo Mix', cc: 5 },
+    { label: 'Reverb',   cc: 6 },
+  ];
+  const PADS = [
+    { label: 'PLAY',  note: 36 },
+    { label: 'STOP',  note: 37 },
+    { label: 'REC',   note: 38 },
+    { label: 'LOOP',  note: 39 },
+    { label: 'PAD 1', note: 40 },
+    { label: 'PAD 2', note: 41 },
+    { label: 'PAD 3', note: 42 },
+    { label: 'PAD 4', note: 43 },
+  ];
 
-        ws.onerror = (err) => {
-            console.error('WebSocket Error:', err);
-            ws.close();
-        };
+  // Piano keys C4 (60) through C5 (72). White keys in order; black keys live
+  // at gaps 0, 1, 3, 4, 5 (between C-D, D-E, F-G, G-A, A-B).
+  const WHITE_NOTES = [
+    { note: 60, label: 'C4' }, { note: 62, label: 'D4' }, { note: 64, label: 'E4' },
+    { note: 65, label: 'F4' }, { note: 67, label: 'G4' }, { note: 69, label: 'A4' },
+    { note: 71, label: 'B4' }, { note: 72, label: 'C5' },
+  ];
+  const BLACK_KEYS = [
+    { note: 61, afterWhite: 0 }, // C#4
+    { note: 63, afterWhite: 1 }, // D#4
+    { note: 66, afterWhite: 3 }, // F#4
+    { note: 68, afterWhite: 4 }, // G#4
+    { note: 70, afterWhite: 5 }, // A#4
+  ];
+
+  // WebSocket connection with linear-then-capped backoff. Drops messages while
+  // disconnected (stale fader values not worth queuing).
+  const statusEl = document.getElementById('status');
+  let ws = null;
+  let reconnectMs = 500;
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/`);
+    ws.addEventListener('open', () => {
+      statusEl.textContent = 'connected';
+      statusEl.className = 'status ok';
+      reconnectMs = 500;
+    });
+    ws.addEventListener('close', () => {
+      statusEl.textContent = 'disconnected — retrying';
+      statusEl.className = 'status';
+      setTimeout(connect, reconnectMs);
+      reconnectMs = Math.min(reconnectMs * 1.6, 5000);
+    });
+    ws.addEventListener('error', () => { try { ws.close(); } catch {} });
+  }
+  connect();
+
+  function send(obj) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify(obj));
+  }
+
+  // --- Faders ---
+  function buildFader(parent, cfg) {
+    const el = document.createElement('div'); el.className = 'fader';
+    el.innerHTML = `
+      <div class="label">${cfg.label}</div>
+      <div class="track">
+        <div class="fill"></div>
+        <div class="thumb"></div>
+      </div>
+      <div class="val">CC ${cfg.cc} · 0</div>`;
+    const track = el.querySelector('.track');
+    const fill  = el.querySelector('.fill');
+    const thumb = el.querySelector('.thumb');
+    const valEl = el.querySelector('.val');
+    let lastSent = -1;
+    function set(value) {
+      value = Math.max(0, Math.min(127, value | 0));
+      const pct = (value / 127) * 100;
+      fill.style.height = pct + '%';
+      thumb.style.bottom = pct + '%';
+      valEl.textContent = `CC ${cfg.cc} · ${value}`;
+      if (value !== lastSent) {
+        send({ type: 'cc', channel: CHANNEL, cc: cfg.cc, value });
+        lastSent = value;
+      }
     }
-    
-    // Core Send Function
-    function sendOsc(address, value) {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            const msg = JSON.stringify({ address, value: Number(value.toFixed(3)) });
-            ws.send(msg);
-        }
+    function fromY(clientY) {
+      const r = track.getBoundingClientRect();
+      const ratio = 1 - (clientY - r.top) / r.height;
+      set(Math.round(ratio * 127));
     }
+    let pid = null;
+    track.addEventListener('pointerdown', (e) => { pid = e.pointerId; track.setPointerCapture(pid); fromY(e.clientY); e.preventDefault(); });
+    track.addEventListener('pointermove', (e) => { if (pid !== null && e.pointerId === pid) fromY(e.clientY); });
+    track.addEventListener('pointerup',   (e) => { if (pid !== null && e.pointerId === pid) { try { track.releasePointerCapture(pid); } catch {} pid = null; } });
+    track.addEventListener('pointercancel', () => { pid = null; });
+    parent.appendChild(el);
+  }
 
-    // --- Fader Logic ---
-    document.querySelectorAll('.fader-track').forEach(fader => {
-        const address = fader.dataset.address;
-        const fill = fader.querySelector('.fader-fill');
-        const thumb = fader.querySelector('.fader-thumb');
-        
-        // Init state
-        let currentPercent = 0.5;
-        updateFaderVisuals(currentPercent);
-        
-        function updateFaderVisuals(percent) {
-            fill.style.height = `${percent * 100}%`;
-            thumb.style.bottom = `${percent * 100}%`;
-        }
+  // --- Pads (note on / off) ---
+  function buildPad(parent, cfg) {
+    const el = document.createElement('div'); el.className = 'pad';
+    el.textContent = cfg.label;
+    function press()   { el.classList.add('active');    send({ type: 'note', channel: CHANNEL, note: cfg.note, value: 127 }); }
+    function release() { if (!el.classList.contains('active')) return; el.classList.remove('active'); send({ type: 'note', channel: CHANNEL, note: cfg.note, value: 0 }); }
+    el.addEventListener('pointerdown', (e) => { press(); el.setPointerCapture(e.pointerId); e.preventDefault(); });
+    el.addEventListener('pointerup',     release);
+    el.addEventListener('pointercancel', release);
+    el.addEventListener('pointerleave', () => { if (el.classList.contains('active')) release(); });
+    parent.appendChild(el);
+  }
 
-        function handlePointer(e) {
-            e.preventDefault();
-            const rect = fader.getBoundingClientRect();
-            // Handle both touch and mouse
-            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            
-            // Calculate percentage from bottom
-            let percent = 1 - ((clientY - rect.top) / rect.height);
-            percent = Math.max(0, Math.min(1, percent));
-            
-            if (percent !== currentPercent) {
-                currentPercent = percent;
-                updateFaderVisuals(percent);
-                sendOsc(address, percent);
-            }
-        }
-        
-        // Touch events
-        fader.addEventListener('touchstart', handlePointer);
-        fader.addEventListener('touchmove', handlePointer);
-        
-        // Mouse events (for desktop testing)
-        let isMouseDown = false;
-        fader.addEventListener('mousedown', (e) => {
-            isMouseDown = true;
-            handlePointer(e);
-        });
-        window.addEventListener('mousemove', (e) => {
-            if (isMouseDown) handlePointer(e);
-        });
-        window.addEventListener('mouseup', () => {
-            isMouseDown = false;
-        });
+  // --- Keyboard ---
+  // Multi-touch capable: pointerId → key element, so two fingers on different
+  // keys both register. Key changes mid-drag (slide between keys) trigger
+  // note-off / note-on of the previous / new key.
+  const activeByPointer = new Map();
+  function pressKey(el) {
+    if (el.classList.contains('active')) return;
+    el.classList.add('active');
+    send({ type: 'note', channel: CHANNEL, note: +el.dataset.note, value: 127 });
+  }
+  function releaseKey(el) {
+    if (!el || !el.classList.contains('active')) return;
+    el.classList.remove('active');
+    send({ type: 'note', channel: CHANNEL, note: +el.dataset.note, value: 0 });
+  }
+  function keyAtPoint(x, y) {
+    const stack = document.elementsFromPoint(x, y);
+    return stack.find(el => el.classList && el.classList.contains('key')) || null;
+  }
+  function bindKey(el) {
+    el.addEventListener('pointerdown', (e) => {
+      // The keyboard container handles the move/up so finger-slides between
+      // keys work — bind capture to the keyboard, not the individual key.
+      activeByPointer.set(e.pointerId, el);
+      pressKey(el);
+      keyboardEl.setPointerCapture(e.pointerId);
+      e.preventDefault();
     });
+  }
+  const keyboardEl = document.getElementById('keyboard');
+  const whiteRow = document.getElementById('white-row');
+  WHITE_NOTES.forEach((k) => {
+    const el = document.createElement('div'); el.className = 'key white';
+    el.dataset.note = k.note;
+    el.innerHTML = `<div class="label">${k.label}</div>`;
+    bindKey(el);
+    whiteRow.appendChild(el);
+  });
+  // Black keys: one black key spans roughly half a white key's width and sits
+  // on the boundary between the white at index `afterWhite` and the next.
+  // We compute left as a percentage of the white-row width.
+  const whiteCount = WHITE_NOTES.length;
+  BLACK_KEYS.forEach((b) => {
+    const el = document.createElement('div'); el.className = 'key black';
+    el.dataset.note = b.note;
+    // Center on the boundary between white[afterWhite] and white[afterWhite+1].
+    // White width = (100% - small padding) / whiteCount. Black is 7% wide and
+    // shifts left by half that to center on the boundary.
+    const centerPct = ((b.afterWhite + 1) / whiteCount) * 100;
+    el.style.left = `calc(${centerPct}% - 3.5%)`;
+    bindKey(el);
+    keyboardEl.appendChild(el);
+  });
+  keyboardEl.addEventListener('pointermove', (e) => {
+    if (!activeByPointer.has(e.pointerId)) return;
+    const prev = activeByPointer.get(e.pointerId);
+    const next = keyAtPoint(e.clientX, e.clientY);
+    if (next && next !== prev) {
+      releaseKey(prev);
+      activeByPointer.set(e.pointerId, next);
+      pressKey(next);
+    }
+  });
+  function endPointer(e) {
+    if (!activeByPointer.has(e.pointerId)) return;
+    releaseKey(activeByPointer.get(e.pointerId));
+    activeByPointer.delete(e.pointerId);
+    try { keyboardEl.releasePointerCapture(e.pointerId); } catch {}
+  }
+  keyboardEl.addEventListener('pointerup',     endPointer);
+  keyboardEl.addEventListener('pointercancel', endPointer);
+  keyboardEl.addEventListener('pointerleave',  endPointer);
 
-    // --- Button Logic ---
-    document.querySelectorAll('.action-button').forEach(btn => {
-        const address = btn.dataset.address;
-        
-        function triggerPress(e) {
-            e.preventDefault();
-            btn.classList.add('active');
-            sendOsc(address, 1.0);
-        }
-        
-        function triggerRelease(e) {
-            e.preventDefault();
-            if (btn.classList.contains('active')) {
-                btn.classList.remove('active');
-                // Some OSC targets expect a 0 on release to act as a momentary switch
-                sendOsc(address, 0.0);
-            }
-        }
-        
-        btn.addEventListener('touchstart', triggerPress);
-        btn.addEventListener('touchend', triggerRelease);
-        btn.addEventListener('touchcancel', triggerRelease);
-        
-        btn.addEventListener('mousedown', triggerPress);
-        btn.addEventListener('mouseup', triggerRelease);
-        btn.addEventListener('mouseleave', triggerRelease);
-    });
-
-    // --- XY Pad Logic ---
-    document.querySelectorAll('.xy-pad').forEach(pad => {
-        const addressX = pad.dataset.addressX;
-        const addressY = pad.dataset.addressY;
-        const cursor = pad.querySelector('.xy-cursor');
-        
-        let currentX = 0.5;
-        let currentY = 0.5;
-
-        function updatePadVisuals(px, py) {
-            cursor.style.left = `${px * 100}%`;
-            cursor.style.top = `${(1 - py) * 100}%`;
-        }
-        
-        function handlePointerPad(e) {
-            e.preventDefault();
-            const rect = pad.getBoundingClientRect();
-            
-            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            
-            let percentX = (clientX - rect.left) / rect.width;
-            let percentY = 1 - ((clientY - rect.top) / rect.height); // Invert Y so bottom is 0
-            
-            percentX = Math.max(0, Math.min(1, percentX));
-            percentY = Math.max(0, Math.min(1, percentY));
-            
-            if (percentX !== currentX || percentY !== currentY) {
-                currentX = percentX;
-                currentY = percentY;
-                updatePadVisuals(percentX, percentY);
-                sendOsc(addressX, percentX);
-                sendOsc(addressY, percentY);
-            }
-        }
-        
-        pad.addEventListener('touchstart', handlePointerPad);
-        pad.addEventListener('touchmove', handlePointerPad);
-        
-        let isPadDown = false;
-        pad.addEventListener('mousedown', (e) => {
-            isPadDown = true;
-            handlePointerPad(e);
-        });
-        window.addEventListener('mousemove', (e) => {
-            if (isPadDown) handlePointerPad(e);
-        });
-        window.addEventListener('mouseup', () => {
-            isPadDown = false;
-        });
-    });
-
-    // --- Keyboard Logic ---
-    const keyboardEl = document.getElementById('keyboard');
-    // C4 to C5 (MIDI notes 60 to 72)
-    const keys = [
-        { note: 60, type: 'white' },
-        { note: 61, type: 'black' },
-        { note: 62, type: 'white' },
-        { note: 63, type: 'black' },
-        { note: 64, type: 'white' },
-        { note: 65, type: 'white' },
-        { note: 66, type: 'black' },
-        { note: 67, type: 'white' },
-        { note: 68, type: 'black' },
-        { note: 69, type: 'white' },
-        { note: 70, type: 'black' },
-        { note: 71, type: 'white' },
-        { note: 72, type: 'white' }
-    ];
-
-    keys.forEach(k => {
-        const keyEl = document.createElement('div');
-        keyEl.className = `key ${k.type}`;
-        keyEl.dataset.note = k.note;
-        
-        function pressKey(e) {
-            e.preventDefault();
-            if (!keyEl.classList.contains('active')) {
-                keyEl.classList.add('active');
-                // Send raw OSC message formatted exactly as the backend expects for a note:
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'note', channel: 1, note: k.note, value: 127 }));
-                }
-            }
-        }
-        
-        function releaseKey(e) {
-            e.preventDefault();
-            if (keyEl.classList.contains('active')) {
-                keyEl.classList.remove('active');
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'note', channel: 1, note: k.note, value: 0 }));
-                }
-            }
-        }
-
-        keyEl.addEventListener('touchstart', pressKey);
-        keyEl.addEventListener('touchend', releaseKey);
-        keyEl.addEventListener('touchcancel', releaseKey);
-        
-        keyEl.addEventListener('mousedown', pressKey);
-        keyEl.addEventListener('mouseup', releaseKey);
-        keyEl.addEventListener('mouseleave', releaseKey);
-        
-        keyboardEl.appendChild(keyEl);
-    });
-
-    // Start connection
-    connect();
+  // Build everything.
+  const fadersEl = document.getElementById('faders');
+  const padsEl   = document.getElementById('pads');
+  for (const f of FADERS) buildFader(fadersEl, f);
+  for (const p of PADS)   buildPad(padsEl, p);
 </script>
 </body>
 </html>
