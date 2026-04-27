@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TouchOSC MVP</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #121212;
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden; /* Prevent scrolling */
+            touch-action: none; /* Prevent browser gestures */
+        }
+        
+        #app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            padding: 20px;
+            box-sizing: border-box;
+            gap: 20px;
+        }
+
+        .header {
+            text-align: center;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #888;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status {
+            font-size: 0.9rem;
+            color: #f44336; /* disconnected red */
+        }
+        .status.connected {
+            color: #4caf50; /* connected green */
+        }
+
+        .controls-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            flex: 1;
+        }
+
+        .control-group {
+            background: #1e1e1e;
+            border-radius: 12px;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid #333;
+            flex: 1 1 30%;
+            min-width: 100px;
+        }
+
+        .label {
+            font-size: 0.8rem;
+            color: #aaa;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            pointer-events: none;
+        }
+
+        /* FADER */
+        .fader-track {
+            width: 40px;
+            flex: 1;
+            background: #000;
+            border-radius: 20px;
+            position: relative;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
+            min-height: 150px;
+        }
+        
+        .fader-fill {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 0%;
+            background: linear-gradient(to top, #2196F3, #4CAF50);
+            border-radius: 20px;
+            pointer-events: none;
+        }
+
+        .fader-thumb {
+            position: absolute;
+            left: 50%;
+            bottom: 0%;
+            transform: translate(-50%, 50%);
+            width: 50px;
+            height: 30px;
+            background: #444;
+            border: 2px solid #666;
+            border-radius: 5px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+            pointer-events: none;
+        }
+
+        /* BUTTONS */
+        .button-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            gap: 10px;
+            width: 100%;
+            flex: 1;
+        }
+
+        .action-button {
+            background: #333;
+            border: 2px solid #444;
+            border-radius: 8px;
+            color: white;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            user-select: none;
+            transition: all 0.1s;
+            cursor: pointer;
+        }
+
+        .action-button.active {
+            background: #FF5722;
+            border-color: #E64A19;
+            transform: scale(0.95);
+        }
+
+        /* XY PAD */
+        .xy-pad-container {
+            flex: 1 1 100%;
+            min-height: 250px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .xy-pad {
+            flex: 1;
+            width: 100%;
+            background: #000;
+            border-radius: 12px;
+            position: relative;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
+            overflow: hidden;
+            touch-action: none;
+        }
+        
+        .xy-cursor {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 193, 7, 0.7);
+            border: 2px solid #FFC107;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            left: 50%;
+            top: 50%;
+            box-shadow: 0 0 15px rgba(255, 193, 7, 0.5);
+        }
+    </style>
+</head>
+<body>
+
+<div id="app-container">
+    <div class="header">
+        <span>TouchOSC MVP (Acid Control)</span>
+        <span class="status" id="connection-status">Disconnected</span>
+    </div>
+
+    <div class="controls-grid">
+        <!-- Fader 1 -->
+        <div class="control-group">
+            <div class="label">Cutoff (303)</div>
+            <div class="fader-track" data-address="/track/1/cutoff">
+                <div class="fader-fill"></div>
+                <div class="fader-thumb"></div>
+            </div>
+        </div>
+
+        <!-- Fader 2 -->
+        <div class="control-group">
+            <div class="label">Resonance</div>
+            <div class="fader-track" data-address="/track/1/reso">
+                <div class="fader-fill"></div>
+                <div class="fader-thumb"></div>
+            </div>
+        </div>
+
+        <!-- Transport Buttons -->
+        <div class="control-group">
+            <div class="label">Transport</div>
+            <div class="button-grid">
+                <div class="action-button" data-address="/transport/play">PLAY</div>
+                <div class="action-button" data-address="/transport/stop">STOP</div>
+                <div class="action-button" data-address="/transport/record">REC</div>
+                <div class="action-button" data-address="/transport/loop">LOOP</div>
+            </div>
+        </div>
+        
+        <!-- XY Pad -->
+        <div class="control-group xy-pad-container">
+            <div class="label">Delay (X: Time, Y: Feedback)</div>
+            <div class="xy-pad" data-address-x="/fx/1/delay_time" data-address-y="/fx/1/delay_feedback">
+                <div class="xy-cursor"></div>
+            </div>
+        </div>
+
+        <!-- Keyboard -->
+        <div class="control-group keyboard-container" style="flex: 1 1 100%; padding: 0;">
+            <div class="label" style="padding-top: 10px; margin-bottom: 5px;">Keyboard (C4 - C5)</div>
+            <div class="keyboard" id="keyboard">
+                <!-- Keys will be injected via JS -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* KEYBOARD */
+    .keyboard {
+        display: flex;
+        width: 100%;
+        height: 120px;
+        position: relative;
+        background: #222;
+        border-radius: 0 0 12px 12px;
+        overflow: hidden;
+    }
+    
+    .key {
+        flex: 1;
+        border: 1px solid #000;
+        box-sizing: border-box;
+        border-radius: 0 0 4px 4px;
+        touch-action: none;
+        cursor: pointer;
+    }
+    
+    .key.white {
+        background: #fff;
+        z-index: 1;
+    }
+    
+    .key.white.active {
+        background: #ccc;
+    }
+    
+    .key.black {
+        background: #000;
+        z-index: 2;
+        height: 60%;
+        width: calc(100% / 7 * 0.6); /* Approximate width based on 7 white keys */
+        margin-left: calc(-100% / 7 * 0.3);
+        margin-right: calc(-100% / 7 * 0.3);
+    }
+    
+    .key.black.active {
+        background: #333;
+    }
+</style>
+
+<script>
+    // Initialize WebSocket
+    let ws;
+    const statusEl = document.getElementById('connection-status');
+    const WEBSOCKET_PORT = 8080;
+    
+    function connect() {
+        const host = window.location.hostname || 'localhost';
+        // Note: For actual phone testing, this needs to point to the MacBook's LAN IP
+        ws = new WebSocket(`ws://${host}:${WEBSOCKET_PORT}`);
+        
+        ws.onopen = () => {
+            statusEl.textContent = 'Connected';
+            statusEl.className = 'status connected';
+            console.log('WebSocket Connected');
+        };
+        
+        ws.onclose = () => {
+            statusEl.textContent = 'Disconnected';
+            statusEl.className = 'status';
+            console.log('WebSocket Disconnected. Reconnecting in 2s...');
+            setTimeout(connect, 2000);
+        };
+
+        ws.onerror = (err) => {
+            console.error('WebSocket Error:', err);
+            ws.close();
+        };
+    }
+    
+    // Core Send Function
+    function sendOsc(address, value) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            const msg = JSON.stringify({ address, value: Number(value.toFixed(3)) });
+            ws.send(msg);
+        }
+    }
+
+    // --- Fader Logic ---
+    document.querySelectorAll('.fader-track').forEach(fader => {
+        const address = fader.dataset.address;
+        const fill = fader.querySelector('.fader-fill');
+        const thumb = fader.querySelector('.fader-thumb');
+        
+        // Init state
+        let currentPercent = 0.5;
+        updateFaderVisuals(currentPercent);
+        
+        function updateFaderVisuals(percent) {
+            fill.style.height = `${percent * 100}%`;
+            thumb.style.bottom = `${percent * 100}%`;
+        }
+
+        function handlePointer(e) {
+            e.preventDefault();
+            const rect = fader.getBoundingClientRect();
+            // Handle both touch and mouse
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            
+            // Calculate percentage from bottom
+            let percent = 1 - ((clientY - rect.top) / rect.height);
+            percent = Math.max(0, Math.min(1, percent));
+            
+            if (percent !== currentPercent) {
+                currentPercent = percent;
+                updateFaderVisuals(percent);
+                sendOsc(address, percent);
+            }
+        }
+        
+        // Touch events
+        fader.addEventListener('touchstart', handlePointer);
+        fader.addEventListener('touchmove', handlePointer);
+        
+        // Mouse events (for desktop testing)
+        let isMouseDown = false;
+        fader.addEventListener('mousedown', (e) => {
+            isMouseDown = true;
+            handlePointer(e);
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (isMouseDown) handlePointer(e);
+        });
+        window.addEventListener('mouseup', () => {
+            isMouseDown = false;
+        });
+    });
+
+    // --- Button Logic ---
+    document.querySelectorAll('.action-button').forEach(btn => {
+        const address = btn.dataset.address;
+        
+        function triggerPress(e) {
+            e.preventDefault();
+            btn.classList.add('active');
+            sendOsc(address, 1.0);
+        }
+        
+        function triggerRelease(e) {
+            e.preventDefault();
+            if (btn.classList.contains('active')) {
+                btn.classList.remove('active');
+                // Some OSC targets expect a 0 on release to act as a momentary switch
+                sendOsc(address, 0.0);
+            }
+        }
+        
+        btn.addEventListener('touchstart', triggerPress);
+        btn.addEventListener('touchend', triggerRelease);
+        btn.addEventListener('touchcancel', triggerRelease);
+        
+        btn.addEventListener('mousedown', triggerPress);
+        btn.addEventListener('mouseup', triggerRelease);
+        btn.addEventListener('mouseleave', triggerRelease);
+    });
+
+    // --- XY Pad Logic ---
+    document.querySelectorAll('.xy-pad').forEach(pad => {
+        const addressX = pad.dataset.addressX;
+        const addressY = pad.dataset.addressY;
+        const cursor = pad.querySelector('.xy-cursor');
+        
+        let currentX = 0.5;
+        let currentY = 0.5;
+
+        function updatePadVisuals(px, py) {
+            cursor.style.left = `${px * 100}%`;
+            cursor.style.top = `${(1 - py) * 100}%`;
+        }
+        
+        function handlePointerPad(e) {
+            e.preventDefault();
+            const rect = pad.getBoundingClientRect();
+            
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            
+            let percentX = (clientX - rect.left) / rect.width;
+            let percentY = 1 - ((clientY - rect.top) / rect.height); // Invert Y so bottom is 0
+            
+            percentX = Math.max(0, Math.min(1, percentX));
+            percentY = Math.max(0, Math.min(1, percentY));
+            
+            if (percentX !== currentX || percentY !== currentY) {
+                currentX = percentX;
+                currentY = percentY;
+                updatePadVisuals(percentX, percentY);
+                sendOsc(addressX, percentX);
+                sendOsc(addressY, percentY);
+            }
+        }
+        
+        pad.addEventListener('touchstart', handlePointerPad);
+        pad.addEventListener('touchmove', handlePointerPad);
+        
+        let isPadDown = false;
+        pad.addEventListener('mousedown', (e) => {
+            isPadDown = true;
+            handlePointerPad(e);
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (isPadDown) handlePointerPad(e);
+        });
+        window.addEventListener('mouseup', () => {
+            isPadDown = false;
+        });
+    });
+
+    // --- Keyboard Logic ---
+    const keyboardEl = document.getElementById('keyboard');
+    // C4 to C5 (MIDI notes 60 to 72)
+    const keys = [
+        { note: 60, type: 'white' },
+        { note: 61, type: 'black' },
+        { note: 62, type: 'white' },
+        { note: 63, type: 'black' },
+        { note: 64, type: 'white' },
+        { note: 65, type: 'white' },
+        { note: 66, type: 'black' },
+        { note: 67, type: 'white' },
+        { note: 68, type: 'black' },
+        { note: 69, type: 'white' },
+        { note: 70, type: 'black' },
+        { note: 71, type: 'white' },
+        { note: 72, type: 'white' }
+    ];
+
+    keys.forEach(k => {
+        const keyEl = document.createElement('div');
+        keyEl.className = `key ${k.type}`;
+        keyEl.dataset.note = k.note;
+        
+        function pressKey(e) {
+            e.preventDefault();
+            if (!keyEl.classList.contains('active')) {
+                keyEl.classList.add('active');
+                // Send raw OSC message formatted exactly as the backend expects for a note:
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'note', channel: 1, note: k.note, value: 127 }));
+                }
+            }
+        }
+        
+        function releaseKey(e) {
+            e.preventDefault();
+            if (keyEl.classList.contains('active')) {
+                keyEl.classList.remove('active');
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'note', channel: 1, note: k.note, value: 0 }));
+                }
+            }
+        }
+
+        keyEl.addEventListener('touchstart', pressKey);
+        keyEl.addEventListener('touchend', releaseKey);
+        keyEl.addEventListener('touchcancel', releaseKey);
+        
+        keyEl.addEventListener('mousedown', pressKey);
+        keyEl.addEventListener('mouseup', releaseKey);
+        keyEl.addEventListener('mouseleave', releaseKey);
+        
+        keyboardEl.appendChild(keyEl);
+    });
+
+    // Start connection
+    connect();
+</script>
+</body>
+</html>
