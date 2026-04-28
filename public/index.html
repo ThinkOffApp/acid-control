@@ -25,10 +25,13 @@
   header .toggle { font-size: 11px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); color: var(--muted); cursor: pointer; touch-action: none; user-select: none; }
   header .toggle.on { background: var(--accent); border-color: var(--accent); color: #06120a; }
 
-  /* Visualizer panel — iframe to muikku.app, only loads when toggled on */
-  .viz { display: none; flex: 0 0 auto; height: 220px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #000; position: relative; }
+  /* Visualizer panel — local canvas visualizer that reacts to tap, camera
+     hue/brightness/motion, and incoming notes. Stays small unless toggled. */
+  .viz { display: none; flex: 0 0 auto; height: 38vh; min-height: 240px; max-height: 480px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #050811; position: relative; }
   .viz.on { display: block; }
+  .viz canvas.viz-canvas { width: 100%; height: 100%; display: block; }
   .viz iframe { width: 100%; height: 100%; border: 0; display: block; }
+  .viz .viz-source { position: absolute; right: 8px; top: 8px; font-size: 10px; color: var(--accent); background: rgba(0,0,0,0.45); padding: 3px 6px; border-radius: 4px; pointer-events: none; }
   /* Tap overlay — sits above the iframe and catches pointer events when TAP
      mode is active. Cross-hair on the last tap position. */
   .tap-overlay { position: absolute; inset: 0; touch-action: none; display: none; cursor: crosshair; }
@@ -95,6 +98,7 @@
   <div class="title">Acid Control</div>
   <div class="right">
     <div class="toggle" id="viz-toggle">VIZ</div>
+    <div class="toggle" id="viz-src-toggle" title="Toggle local canvas / muikku.app">SRC</div>
     <div class="toggle" id="tap-toggle">TAP</div>
     <div class="toggle" id="cam-toggle">CAM</div>
     <div class="status" id="status">connecting…</div>
@@ -102,9 +106,11 @@
 </header>
 <main>
   <div class="viz" id="viz">
+    <canvas class="viz-canvas" id="viz-canvas"></canvas>
+    <div class="viz-source" id="viz-source">local</div>
     <div class="tap-overlay" id="tap-overlay">
       <div class="crosshair" id="tap-crosshair"></div>
-      <div class="legend">tap: CC 10 (x) · CC 11 (y) · note 70</div>
+      <div class="legend">tap: CC 10 (x) · CC 11 (y) · note (oct-shifted)</div>
     </div>
   </div>
   <div class="cam" id="cam">
@@ -162,29 +168,144 @@
     { note: 70, afterWhite: 5 }, // A#4
   ];
 
-  // --- Visualizer (muikku.app embedded iframe) ---
-  // Lazy-load: the iframe is only created the first time the toggle is turned
-  // on, so the page does not fetch muikku.app on every refresh. State persists
-  // in localStorage so the panel sticks across reloads.
+  // --- Visualizer ---
+  // Two sources, toggled via SRC:
+  //   * local canvas (default) — particles + bloom that react to tap, camera
+  //     hue/brightness/motion, and note triggers. Runs at 60 FPS, no network.
+  //   * muikku.app iframe — kept as an option but petrus reported it is
+  //     better in the Android app than embedded; default is local.
+  // The TAP overlay sits above whichever is active so tap-to-MIDI works in
+  // either mode.
   const vizEl = document.getElementById('viz');
   const vizToggle = document.getElementById('viz-toggle');
-  function setViz(on) {
-    if (on && !vizEl.firstChild) {
-      const ifr = document.createElement('iframe');
-      ifr.src = 'https://muikku.app/';
-      ifr.allow = 'autoplay; microphone; camera; display-capture; fullscreen; xr-spatial-tracking';
-      ifr.referrerPolicy = 'no-referrer';
-      vizEl.appendChild(ifr);
+  const vizSrcToggle = document.getElementById('viz-src-toggle');
+  const vizSourceLabel = document.getElementById('viz-source');
+  const vizCanvas = document.getElementById('viz-canvas');
+  let vizSource = 'local';   // 'local' | 'muikku'
+  let vizIframeEl = null;
+  let vizRafId = null;
+
+  function setVizSource(src) {
+    vizSource = src;
+    if (src === 'muikku') {
+      if (!vizIframeEl) {
+        vizIframeEl = document.createElement('iframe');
+        vizIframeEl.src = 'https://muikku.app/';
+        vizIframeEl.allow = 'autoplay; microphone; camera; display-capture; fullscreen; xr-spatial-tracking; gyroscope; accelerometer';
+        vizIframeEl.referrerPolicy = 'no-referrer';
+        vizEl.insertBefore(vizIframeEl, vizEl.firstChild);
+      }
+      vizIframeEl.style.display = 'block';
+      vizCanvas.style.display = 'none';
+      stopVizLoop();
+    } else {
+      if (vizIframeEl) vizIframeEl.style.display = 'none';
+      vizCanvas.style.display = 'block';
+      if (vizEl.classList.contains('on')) startVizLoop();
     }
+    vizSourceLabel.textContent = src;
+    vizSrcToggle.classList.toggle('on', src === 'muikku');
+    try { localStorage.setItem('viz_src', src); } catch {}
+  }
+  vizSrcToggle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    setVizSource(vizSource === 'local' ? 'muikku' : 'local');
+  });
+
+  function setViz(on) {
     vizEl.classList.toggle('on', on);
     vizToggle.classList.toggle('on', on);
+    if (on && vizSource === 'local') startVizLoop();
+    if (!on) stopVizLoop();
     try { localStorage.setItem('viz', on ? '1' : '0'); } catch {}
   }
   vizToggle.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     setViz(!vizEl.classList.contains('on'));
   });
-  // Restore saved state.
+
+  // ---- Local canvas visualizer ----
+  // State that the visualizer reads. Updated by tap, camera, and note events.
+  const vizState = {
+    tapX: 0.5, tapY: 0.5, tapping: false,
+    bright: 0.5, motion: 0, hue: 0,  // 0..1
+    pulse: 0,                         // decays each frame
+    particles: [],                    // {x,y,vx,vy,life,hue}
+  };
+  function spawnParticles(x, y, hue, count) {
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const v = 0.3 + Math.random() * 1.2;
+      vizState.particles.push({
+        x, y,
+        vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+        life: 1, hue: hue + (Math.random() - 0.5) * 30,
+      });
+    }
+    if (vizState.particles.length > 400) vizState.particles.splice(0, vizState.particles.length - 400);
+  }
+  function pulseViz(amount) { vizState.pulse = Math.min(1, vizState.pulse + amount); }
+  function vizFrame() {
+    vizRafId = requestAnimationFrame(vizFrame);
+    const c = vizCanvas;
+    const w = c.clientWidth, h = c.clientHeight;
+    if (c.width !== w * devicePixelRatio || c.height !== h * devicePixelRatio) {
+      c.width = w * devicePixelRatio; c.height = h * devicePixelRatio;
+    }
+    const ctx = c.getContext('2d');
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    // Background: brightness from camera, hue tint from camera + tap pulse.
+    const bg = `hsl(${vizState.hue * 360}, 30%, ${4 + vizState.bright * 12 + vizState.pulse * 25}%)`;
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+    // Grid pattern, drifts with tap X, distortion with motion.
+    ctx.strokeStyle = `hsla(${(vizState.hue * 360 + 180) % 360}, 80%, 70%, ${0.18 + vizState.motion * 0.4})`;
+    ctx.lineWidth = 1;
+    const gridSize = 28;
+    const ox = (vizState.tapX - 0.5) * 60;
+    const oy = (vizState.tapY - 0.5) * 60;
+    ctx.beginPath();
+    for (let x = (ox % gridSize); x < w; x += gridSize) { ctx.moveTo(x, 0); ctx.lineTo(x, h); }
+    for (let y = (oy % gridSize); y < h; y += gridSize) { ctx.moveTo(0, y); ctx.lineTo(w, y); }
+    ctx.stroke();
+    // Tap glow.
+    if (vizState.tapping) {
+      const tx = vizState.tapX * w, ty = (1 - vizState.tapY) * h;
+      const grd = ctx.createRadialGradient(tx, ty, 0, tx, ty, 90);
+      grd.addColorStop(0, `hsla(${vizState.hue * 360}, 90%, 70%, 0.85)`);
+      grd.addColorStop(1, `hsla(${vizState.hue * 360}, 90%, 50%, 0)`);
+      ctx.fillStyle = grd;
+      ctx.fillRect(tx - 90, ty - 90, 180, 180);
+    }
+    // Particles.
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = vizState.particles.length - 1; i >= 0; i--) {
+      const p = vizState.particles[i];
+      p.x += p.vx; p.y += p.vy;
+      p.vx *= 0.985; p.vy *= 0.985;
+      p.vy += 0.02;
+      p.life -= 0.012;
+      if (p.life <= 0) { vizState.particles.splice(i, 1); continue; }
+      ctx.fillStyle = `hsla(${p.hue}, 90%, 60%, ${p.life})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 2 + p.life * 4, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    // Decay pulse.
+    vizState.pulse *= 0.92;
+  }
+  function startVizLoop() {
+    if (vizRafId) return;
+    vizRafId = requestAnimationFrame(vizFrame);
+  }
+  function stopVizLoop() {
+    if (vizRafId) { cancelAnimationFrame(vizRafId); vizRafId = null; }
+  }
+  // Restore saved state — source first, then on/off.
+  try {
+    const savedSrc = localStorage.getItem('viz_src');
+    if (savedSrc === 'muikku' || savedSrc === 'local') setVizSource(savedSrc);
+    else setVizSource('local');
+  } catch { setVizSource('local'); }
   try { if (localStorage.getItem('viz') === '1') setViz(true); } catch {}
 
   // --- TAP mode (tap on muikku.app overlay) ---
@@ -206,6 +327,7 @@
     setTap(!vizEl.classList.contains('tap'));
   });
   let tapPid = null;
+  let lastTapNote = TAP_NOTE; // remembered so we send note-off at the same shifted value as note-on
   function tapFromEvent(e) {
     const r = tapOverlay.getBoundingClientRect();
     const x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
@@ -214,13 +336,18 @@
     send({ type: 'cc', channel: 1, cc: TAP_CC_Y, value: Math.round((1 - y) * 127) });
     tapCrosshair.style.left = (x * 100) + '%';
     tapCrosshair.style.top  = (y * 100) + '%';
+    vizState.tapX = x; vizState.tapY = 1 - y; vizState.tapping = true;
   }
   tapOverlay.addEventListener('pointerdown', (e) => {
     tapPid = e.pointerId;
     tapOverlay.setPointerCapture(tapPid);
     tapCrosshair.classList.add('on');
     tapFromEvent(e);
-    send({ type: 'note', channel: 1, note: TAP_NOTE, value: 127 });
+    // Apply the same octave shift as the keyboard / pads.
+    lastTapNote = shifted(TAP_NOTE);
+    send({ type: 'note', channel: 1, note: lastTapNote, value: 127 });
+    pulseViz(0.6);
+    spawnParticles(vizState.tapX * vizCanvas.clientWidth, (1 - vizState.tapY) * vizCanvas.clientHeight, vizState.hue * 360, 14);
     e.preventDefault();
   });
   tapOverlay.addEventListener('pointermove', (e) => {
@@ -230,7 +357,8 @@
   function tapEnd(e) {
     if (tapPid === null || e.pointerId !== tapPid) return;
     tapCrosshair.classList.remove('on');
-    send({ type: 'note', channel: 1, note: TAP_NOTE, value: 0 });
+    send({ type: 'note', channel: 1, note: lastTapNote, value: 0 });
+    vizState.tapping = false;
     try { tapOverlay.releasePointerCapture(tapPid); } catch {}
     tapPid = null;
   }
@@ -271,8 +399,17 @@
         camToggle.classList.add('on');
         try { localStorage.setItem('cam', '1'); } catch {}
       } catch (err) {
-        camToggle.textContent = 'CAM ✕';
-        setTimeout(() => { camToggle.textContent = 'CAM'; }, 2000);
+        // Most likely cause on phones over LAN HTTP: getUserMedia requires a
+        // secure context. Surface the reason inline so it does not look
+        // silently broken.
+        const isInsecure = location.protocol === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1';
+        const reason = isInsecure
+          ? 'CAM needs HTTPS. iOS/Safari requires it; Android sometimes too. Use the bridge over a Tailscale Funnel or a self-signed cert.'
+          : (err && err.message ? err.message : 'camera unavailable');
+        camEl.classList.add('on');
+        camEl.innerHTML = `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:12px;text-align:center;font-size:11px;color:var(--warn);background:rgba(0,0,0,0.5);">${reason}</div>`;
+        camToggle.classList.remove('on');
+        try { localStorage.setItem('cam', '0'); } catch {}
         console.error('camera error', err);
       }
     } else {
@@ -326,6 +463,10 @@
     send({ type: 'cc', channel: 1, cc: CAM_CC_HUE,    value: ccHue });
     camReadout.innerHTML =
       `<span>BR ${ccBright}</span><span>MO ${ccMotion}</span><span>HU ${ccHue}</span>`;
+    // Drive the local visualizer with the same signals.
+    vizState.bright = ccBright / 127;
+    vizState.motion = ccMotion / 127;
+    vizState.hue    = ccHue    / 127;
     // Cache only luma-per-pixel for the motion delta on next tick.
     const lumaArr = new Uint8ClampedArray(n);
     for (let j = 0, i = 0; j < n; j++, i += 4) {
