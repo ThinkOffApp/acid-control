@@ -120,6 +120,7 @@
   </div>
   <div class="faders" id="faders"></div>
   <div class="tracks-row" id="tracks"></div>
+  <div class="faders" id="blinders"></div>
   <div class="pads" id="pads"></div>
   <div class="oct-row">
     <div class="oct-btn" id="oct-down">OCT−</div>
@@ -142,15 +143,22 @@
     { label: 'Echo Mix', cc: 5 },
     { label: 'Reverb',   cc: 6 },
   ];
+  const BLINDERS = [
+    { label: 'Master',   cc: 15 },
+    { label: 'B1',       cc: 16 },
+    { label: 'B2',       cc: 17 },
+    { label: 'B3',       cc: 18 },
+    { label: 'B4',       cc: 19 },
+  ];
   const PADS = [
-    { label: 'PLAY',  note: 36 },
-    { label: 'STOP',  note: 37 },
-    { label: 'REC',   note: 38 },
-    { label: 'LOOP',  note: 39 },
-    { label: 'PAD 1', note: 40 },
-    { label: 'PAD 2', note: 41 },
-    { label: 'PAD 3', note: 42 },
-    { label: 'PAD 4', note: 43 },
+    { label: 'PLAY',   note: 36 },
+    { label: 'STOP',   note: 37 },
+    { label: 'REC',    note: 38 },
+    { label: 'LOOP',   note: 39 },
+    { label: 'PAD 1',  note: 40 },
+    { label: 'PAD 2',  note: 41 },
+    { label: 'PAD 3',  note: 42 },
+    { label: 'STROBE', note: 43 }, // used for Blinders strobe
   ];
 
   // Piano keys C4 (60) through C5 (72). White keys in order; black keys live
@@ -716,9 +724,11 @@
 
   // Build everything.
   const fadersEl = document.getElementById('faders');
+  const blindersEl = document.getElementById('blinders');
   const padsEl   = document.getElementById('pads');
   const tracksEl = document.getElementById('tracks');
   for (const f of FADERS) buildFader(fadersEl, f);
+  for (const b of BLINDERS) buildFader(blindersEl, b);
   for (const p of PADS)   buildPad(padsEl, p);
   for (const t of TRACKS) buildTrackBtn(tracksEl, t);
   buildTrackBtn(tracksEl, { label: 'STOP\nALL', note: 45 }, true);
