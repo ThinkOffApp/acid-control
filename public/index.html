@@ -535,10 +535,12 @@
     const next = Math.max(OCT_MIN, Math.min(OCT_MAX, octaveShift + delta));
     if (next === octaveShift) return;
     // Release any held notes at the OLD octave so Ableton doesn't get stuck
-    // notes when keys "move" mid-press.
+    // notes when keys "move" mid-press. Pads send on CHANNEL (1), keys send
+    // on KEY_CHANNEL (3) — release on the same channel they were pressed on.
     for (const el of document.querySelectorAll('.key.active, .pad.active')) {
       const baseNote = +el.dataset.note;
-      send({ type: 'note', channel: CHANNEL, note: shifted(baseNote), value: 0 });
+      const ch = el.classList.contains('key') ? KEY_CHANNEL : CHANNEL;
+      send({ type: 'note', channel: ch, note: shifted(baseNote), value: 0 });
       el.classList.remove('active');
     }
     activeByPointer.clear();
@@ -608,15 +610,21 @@
   // keys both register. Key changes mid-drag (slide between keys) trigger
   // note-off / note-on of the previous / new key.
   const activeByPointer = new Map();
+  // Keyboard runs on its own MIDI channel so a dedicated Ableton track can
+  // host a separate synth for the on-screen piano without sharing notes with
+  // the pads (ch 1) or track launchers (ch 2). To use: in Ableton, add a MIDI
+  // track, set MIDI From = touch-control, All Channels -> Ch. 3, drop any
+  // instrument on it, set Monitor = In.
+  const KEY_CHANNEL = 3;
   function pressKey(el) {
     if (el.classList.contains('active')) return;
     el.classList.add('active');
-    send({ type: 'note', channel: CHANNEL, note: shifted(+el.dataset.note), value: 127 });
+    send({ type: 'note', channel: KEY_CHANNEL, note: shifted(+el.dataset.note), value: 127 });
   }
   function releaseKey(el) {
     if (!el || !el.classList.contains('active')) return;
     el.classList.remove('active');
-    send({ type: 'note', channel: CHANNEL, note: shifted(+el.dataset.note), value: 0 });
+    send({ type: 'note', channel: KEY_CHANNEL, note: shifted(+el.dataset.note), value: 0 });
   }
   function keyAtPoint(x, y) {
     const stack = document.elementsFromPoint(x, y);
